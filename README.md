@@ -1,7 +1,7 @@
 # 🧠 Gemini Forms Helper 
 An inherently secretive, hyper-fast Chrome Extension utilizing Google's advanced `gemini-2.0-flash-exp` language model to automatically traverse, parse, and answer complex Google Forms arrays.
 
-![Gemini Forms Hero Header](https://images.unsplash.com/photo-1633534509531-15b57f2aa2ee?auto=format&fit=crop&q=80&w=1200 "High-tech abstract dark glass AI visualization")
+![Gemini Forms Demo](https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&q=80&w=1200 "Example of the ultra-thin translucent liquid glass interface superimposed on a form")
 
 *(Note: The actual UI is designed to be a "Liquid Glass" 180px micro-panel with no headers or logos for maximum discretion.)*
 
@@ -15,8 +15,6 @@ An inherently secretive, hyper-fast Chrome Extension utilizing Google's advanced
 - **Anti-Rate Limit Payload Chunking:** Forms are mapped into strict arrays, sliced into chunks of 10 questions at a time, and staggered to elegantly bypass the `429 Too Many Requests` status block.
 
 ## ⚙️ Architecture & Data Flow
-
-![Architecture Blueprint](https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=1200 "Abstract data flow networking grid")
 
 The extension avoids generic DOM stringifiers by constructing a pure JSON proxy of the Google Form layout.
 
@@ -57,9 +55,6 @@ sequenceDiagram
 ```
 
 ## ⏱️ Performance & Statistics
-
-![Data Statistics Chart](https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=1200 "Professional analytical data screen")
-
 By explicitly enforcing JSON schemas on the Gemini API and indexing the DOM, the application achieves incredible speeds:
 
 | Metric | Previous Architecture (Fuzzy Match) | New Architecture (DOM Indexing) |
