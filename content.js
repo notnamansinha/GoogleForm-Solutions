@@ -29,8 +29,18 @@ window.applyAnswersToForm = function (answersArray) {
             const heading = container.querySelector('div[role="heading"]');
             if (!heading) continue;
 
-            const headingText = heading.innerText.replace(/\*/g, '').toLowerCase().trim();
-            if (!headingText.includes(qSnippet) && !qSnippet.includes(headingText.substring(0, 20))) continue;
+            // Make matching more generous. Gemini sometimes trims words or adds question marks.
+            const rawHeading = heading.innerText.toLowerCase();
+            const cleanHeading = rawHeading.replace(/[\*\n]/g, ' ').replace(/\s+/g, ' ').trim();
+            const searchQ = qSnippet.replace(/[\*\n]/g, ' ').replace(/\s+/g, ' ').trim();
+
+            // If neither includes the other, it's not our question
+            if (!cleanHeading.includes(searchQ) && !searchQ.includes(cleanHeading)) {
+                // One more try: check if the first 15 chars match (helps with truncated questions)
+                const prefix1 = cleanHeading.substring(0, 15);
+                const prefix2 = searchQ.substring(0, 15);
+                if (prefix1 !== prefix2) continue;
+            }
 
             // Found the question — now click options
             const radios = container.querySelectorAll('div[role="radio"]');
