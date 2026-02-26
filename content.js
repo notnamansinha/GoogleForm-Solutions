@@ -29,17 +29,19 @@ window.applyAnswersToForm = function (answersArray) {
             const heading = container.querySelector('div[role="heading"]');
             if (!heading) continue;
 
-            // Make matching more generous. Gemini sometimes trims words or adds question marks.
+            // Make matching truly robust: Google Forms injects hidden "required" text or image labels
+            // So we split Gemini's question chunk into words and check if the heading contains most of them
             const rawHeading = heading.innerText.toLowerCase();
-            const cleanHeading = rawHeading.replace(/[\*\n]/g, ' ').replace(/\s+/g, ' ').trim();
-            const searchQ = qSnippet.replace(/[\*\n]/g, ' ').replace(/\s+/g, ' ').trim();
+            const searchWords = qSnippet.replace(/[\*\n\?,]/g, ' ').split(/\s+/).filter(w => w.length > 3);
 
-            // If neither includes the other, it's not our question
-            if (!cleanHeading.includes(searchQ) && !searchQ.includes(cleanHeading)) {
-                // One more try: check if the first 15 chars match (helps with truncated questions)
-                const prefix1 = cleanHeading.substring(0, 15);
-                const prefix2 = searchQ.substring(0, 15);
-                if (prefix1 !== prefix2) continue;
+            let matchedWords = 0;
+            searchWords.forEach(word => {
+                if (rawHeading.includes(word)) matchedWords++;
+            });
+
+            // If we don't match at least 60% of the significant words in the question, skip it
+            if (searchWords.length > 0 && (matchedWords / searchWords.length) < 0.6) {
+                continue;
             }
 
             // Found the question — now click options
