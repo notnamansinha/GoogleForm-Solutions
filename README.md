@@ -1,11 +1,10 @@
-# 🧠 Gemini Forms Helper 
+# GoogleForms Solutions
 An inherently secretive, hyper-fast Chrome Extension utilizing Google's advanced `gemini-2.0-flash-exp` language model to automatically traverse, parse, and answer complex Google Forms arrays.
 
 ![Gemini Forms Demo](https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&q=80&w=1200 "Example of the ultra-thin translucent liquid glass interface superimposed on a form")
 
-*(Note: The actual UI is designed to be a "Liquid Glass" 180px micro-panel with no headers or logos for maximum discretion.)*
 
-## 🚀 Key Features
+## Key Features
 - **Liquid Glass Interface:** An ultra-secretive, 180px wide translucent UI that blends into the background. No headers, no branding.
 - **Deep DOM Scraping:** Employs an explicit `dataset` index tagging system. Instead of relying on fallible fuzzy text algorithms, the extension rigidly tags every node.
 - **Multi-Type Parsing:** Autonomously detects and successfully interacts with:
@@ -14,7 +13,7 @@ An inherently secretive, hyper-fast Chrome Extension utilizing Google's advanced
   - `input[type="text"]` & `textarea` (Short Answer / Paragraph generation)
 - **Anti-Rate Limit Payload Chunking:** Forms are mapped into strict arrays, sliced into chunks of 10 questions at a time, and staggered to elegantly bypass the `429 Too Many Requests` status block.
 
-## ⚙️ Architecture & Data Flow
+## Architecture & Data Flow
 
 The extension avoids generic DOM stringifiers by constructing a pure JSON proxy of the Google Form layout.
 
@@ -54,7 +53,7 @@ sequenceDiagram
     deactivate DOM
 ```
 
-## ⏱️ Performance & Statistics
+## Performance & Statistics
 By explicitly enforcing JSON schemas on the Gemini API and indexing the DOM, the application achieves incredible speeds:
 
 | Metric | Previous Architecture (Fuzzy Match) | New Architecture (DOM Indexing) |
@@ -66,7 +65,7 @@ By explicitly enforcing JSON schemas on the Gemini API and indexing the DOM, the
 | **Average Form Speed (20Qs)** | ~14 seconds | **~4.2 seconds** (via `flash-exp`) |
 | **API Call Footprint** | Massive (Passed entire raw HTML) | **Minimal** (Passes strict JSON Schema only) |
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 1. **Clone the Repository**
    ```bash
