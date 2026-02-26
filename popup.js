@@ -2,7 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const apiKeyInput = document.getElementById('apiKey');
   const answerBtn = document.getElementById('answerBtn');
   const clearBtn = document.getElementById('clearBtn');
-  const statusDisplay = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const statusDot = document.getElementById('statusDot');
 
   // Load saved API key
   chrome.storage.local.get(['geminiApiKey'], (result) => {
@@ -17,26 +18,36 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   function updateStatus(message) {
-    statusDisplay.textContent = message;
+    statusText.textContent = message;
+
+    // Update dot state
+    statusDot.className = 'status-dot';
+    if (message.toLowerCase().includes('error') || message.toLowerCase().includes('fail')) {
+      statusDot.classList.add('error');
+    } else if (message.includes('✅') || message.toLowerCase() === 'ready') {
+      statusDot.classList.add(message.toLowerCase() === 'ready' ? 'idle' : 'done');
+    } else if (message.toLowerCase() !== 'ready' && message.toLowerCase() !== 'idle') {
+      statusDot.classList.add('working');
+    } else {
+      statusDot.classList.add('idle');
+    }
   }
 
   // Handle "Answer Form" button click
   answerBtn.addEventListener('click', async () => {
     if (!apiKeyInput.value) {
-      updateStatus("Error: API Key needed.");
+      updateStatus("Error: API Key is required.");
       return;
     }
 
-    updateStatus("Scraping...");
-    
-    // Get the active tab
+    updateStatus("Scraping form...");
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
-    if (tab.url.includes("docs.google.com/forms")) {
-      // Send message to content script
+
+    if (tab.url && tab.url.includes("docs.google.com/forms")) {
       chrome.tabs.sendMessage(tab.id, { action: "ANSWER_FORM" }, (response) => {
         if (chrome.runtime.lastError) {
-          updateStatus("Error: Could not connect to page.");
+          updateStatus("Error: Can't connect to page. Reload the form.");
           return;
         }
       });
@@ -48,8 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // Handle "Clear Selections" button click
   clearBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab.url.includes("docs.google.com/forms")) {
+    if (tab.url && tab.url.includes("docs.google.com/forms")) {
       chrome.tabs.sendMessage(tab.id, { action: "CLEAR_SELECTIONS" });
+      updateStatus("Ready");
     }
   });
 

@@ -8,37 +8,55 @@ async function getGeminiApiKey() {
     });
 }
 
-async function callGemini(prompt, apiKey) {
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function callGeminiWithRetry(prompt, apiKey, maxRetries = 5) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            contents: [{
-                parts: [{ text: prompt }]
-            }],
-            generationConfig: {
-                temperature: 0.1,
-                responseMimeType: "application/json"
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        responseMimeType: "application/json"
+                    }
+                })
+            });
+
+            if (response.status === 429) {
+                // Exponential backoff: 15s, 30s, 60s, 120s, 240s
+                const waitSec = 15 * Math.pow(2, attempt - 1);
+                console.warn(`Gemini 429 rate limit. Attempt ${attempt}/${maxRetries}. Waiting ${waitSec}s...`);
+                chrome.runtime.sendMessage({
+                    action: "UPDATE_STATUS",
+                    status: `Rate limited. Waiting ${waitSec}s... (attempt ${attempt}/${maxRetries})`
+                });
+                await sleep(waitSec * 1000);
+                continue;
             }
-        })
-    });
 
-    if (!response.ok) {
-        if (response.status === 429) {
-            throw new Error("Rate limit exceeded (429). Please wait and try again.");
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!text) throw new Error("No text returned from Gemini.");
+
+            return JSON.parse(text);
+
+        } catch (err) {
+            if (attempt === maxRetries) throw err;
+            if (!err.message.includes("429")) throw err;
         }
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
     }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("No text returned from Gemini");
-
-    return JSON.parse(text);
+    throw new Error("Failed after all retries due to rate limiting. Please wait a minute and try again.");
 }
 
 // Global function that content.js calls
@@ -46,73 +64,35 @@ window.handleGeminiAnswers = async function (scrapedData) {
     try {
         const apiKey = await getGeminiApiKey();
         if (!apiKey) {
-            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Error: No API Key found in settings." });
+            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Error: No API Key found." });
             return;
         }
 
-        const BATCH_SIZE = 5;
-        const DELAY_MS = 2000; // 2 seconds delay between batches
+        // Send ALL questions in a single call to minimize API requests
+        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Sending ${scrapedData.length} questions to Gemini...` });
 
-        for (let i = 0; i < scrapedData.length; i += BATCH_SIZE) {
-            const batch = scrapedData.slice(i, i + BATCH_SIZE);
-            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
-            const totalBatches = Math.ceil(scrapedData.length / BATCH_SIZE);
+        let promptText = "You are an expert quiz/test answering assistant. I will provide questions with IDs and options.\n\n" +
+            "Return ONLY a JSON array. Each element: {\"id\": <int>, \"answer\": [\"<exact option text>\"]}\n" +
+            "Match option text EXACTLY as provided.\n\n";
 
-            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Fetching answers... (Batch ${batchNum} of ${totalBatches})` });
+        scrapedData.forEach(q => {
+            promptText += `ID:${q.id} | Type:${q.type} | Q: ${q.question} | Options: ${JSON.stringify(q.options)}\n`;
+        });
 
-            let promptText = "You are an automated assistant designed to answer multiple choice questions from a test or survey. I will provide a list of questions along with their unique IDs and possible options.\n\n" +
-                "Task: For each question, determine the correct answer(s) and return a JSON array of objects. Each object MUST contain:\n" +
-                "- \"id\": the exact integer ID provided for the question.\n" +
-                "- \"answer\": an array of strings containing the exact text of the correct option(s).\n\n" +
-                "Important: Your entire response must be ONLY a valid JSON array and nothing else. Ensure the answer text matches the provided options exactly or as closely as possible.\n\n" +
-                "Questions:\n";
+        console.log("Gemini Forms Helper: Sending prompt...", promptText);
 
-            batch.forEach(q => {
-                promptText += `ID: ${q.id}\n`;
-                promptText += `Type: ${q.type}\n`;
-                promptText += `Question: ${q.question}\n`;
-                promptText += `Options: ${JSON.stringify(q.options)}\n\n`;
-            });
+        const answersJson = await callGeminiWithRetry(promptText, apiKey);
+        console.log("Gemini Forms Helper: Received answers:", answersJson);
 
-            console.log(`Gemini Forms Helper: Sending batch ${batchNum} to Gemini...`, promptText);
+        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Applying answers..." });
 
-            let retries = 3;
-            let success = false;
-            while (retries > 0 && !success) {
-                try {
-                    const answersJson = await callGemini(promptText, apiKey);
-                    console.log(`Gemini Forms Helper: Received answers for batch ${batchNum}:`, answersJson);
-
-                    // Call back to content.js to apply the answers incrementally
-                    if (typeof window.applyAnswersToForm === 'function') {
-                        window.applyAnswersToForm(scrapedData, answersJson);
-                    } else {
-                        console.warn("applyAnswersToForm function not found.");
-                    }
-
-                    success = true;
-
-                    // Delay before next batch if there are more
-                    if (i + BATCH_SIZE < scrapedData.length) {
-                        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
-                    }
-                } catch (err) {
-                    if (err.message.includes("429")) {
-                        console.warn(`Rate limit hit. Waiting 5 seconds before retrying... (${retries} retries left)`);
-                        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Rate limit hit. Retrying in 5s... (${retries} left)` });
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        retries--;
-                    } else {
-                        throw err; // Re-throw other errors
-                    }
-                }
-            }
-            if (!success) {
-                throw new Error("Failed after multiple retries due to rate limiting.");
-            }
+        if (typeof window.applyAnswersToForm === 'function') {
+            window.applyAnswersToForm(scrapedData, answersJson);
+            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Done ✅" });
+        } else {
+            console.warn("applyAnswersToForm not found.");
+            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Error: Could not apply answers." });
         }
-
-        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Done ✅ Answers applied!" });
 
     } catch (err) {
         console.error("Gemini Forms Helper API Error:", err);
