@@ -24,9 +24,9 @@ document.addEventListener('DOMContentLoaded', () => {
     statusDot.className = 'status-dot';
     if (message.toLowerCase().includes('error') || message.toLowerCase().includes('fail')) {
       statusDot.classList.add('error');
-    } else if (message.includes('✅') || message.toLowerCase() === 'ready') {
-      statusDot.classList.add(message.toLowerCase() === 'ready' ? 'idle' : 'done');
-    } else if (message.toLowerCase() !== 'ready' && message.toLowerCase() !== 'idle') {
+    } else if (message.includes('✅') || message.toLowerCase() === 'ready to solve') {
+      statusDot.classList.add(message.toLowerCase() === 'ready to solve' ? 'idle' : 'done');
+    } else if (message.toLowerCase() !== 'ready to solve' && message.toLowerCase() !== 'idle') {
       statusDot.classList.add('working');
     } else {
       statusDot.classList.add('idle');
@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab.url && tab.url.includes("docs.google.com/forms")) {
       chrome.tabs.sendMessage(tab.id, { action: "CLEAR_SELECTIONS" });
-      updateStatus("Ready");
+      updateStatus("Ready to solve");
     }
   });
 
