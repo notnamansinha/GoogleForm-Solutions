@@ -1,74 +1,67 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const apiKeyInput = document.getElementById('apiKey');
+  const apiKey = document.getElementById('apiKey');
   const answerBtn = document.getElementById('answerBtn');
   const clearBtn = document.getElementById('clearBtn');
   const statusText = document.getElementById('statusText');
-  const statusDot = document.getElementById('statusDot');
+  const dot = document.getElementById('dot');
 
-  // Load saved API key
-  chrome.storage.local.get(['geminiApiKey'], (result) => {
-    if (result.geminiApiKey) {
-      apiKeyInput.value = result.geminiApiKey;
-    }
+  // Load saved key
+  chrome.storage.local.get(['geminiApiKey'], r => {
+    if (r.geminiApiKey) apiKey.value = r.geminiApiKey;
   });
 
-  // Save API key when changed
-  apiKeyInput.addEventListener('input', () => {
-    chrome.storage.local.set({ geminiApiKey: apiKeyInput.value });
+  // Load last status (persists across popup open/close)
+  chrome.storage.local.get(['geminiStatus'], r => {
+    if (r.geminiStatus) setUI(r.geminiStatus);
   });
 
-  function updateStatus(message) {
-    statusText.textContent = message;
+  // Save key on change
+  apiKey.addEventListener('input', () => {
+    chrome.storage.local.set({ geminiApiKey: apiKey.value });
+  });
 
-    // Update dot state
-    statusDot.className = 'status-dot';
-    if (message.toLowerCase().includes('error') || message.toLowerCase().includes('fail')) {
-      statusDot.classList.add('error');
-    } else if (message.includes('✅') || message.toLowerCase() === 'ready to solve') {
-      statusDot.classList.add(message.toLowerCase() === 'ready to solve' ? 'idle' : 'done');
-    } else if (message.toLowerCase() !== 'ready to solve' && message.toLowerCase() !== 'idle') {
-      statusDot.classList.add('working');
-    } else {
-      statusDot.classList.add('idle');
-    }
+  function setUI(msg) {
+    statusText.textContent = msg;
+    dot.className = 'dot';
+    const m = msg.toLowerCase();
+    if (m.includes('error') || m.includes('fail')) dot.classList.add('err');
+    else if (m.includes('✅') || m === 'ready') { /* default gray */ }
+    else if (m !== 'ready') dot.classList.add('active');
   }
 
-  // Handle "Answer Form" button click
+  // Answer
   answerBtn.addEventListener('click', async () => {
-    if (!apiKeyInput.value) {
-      updateStatus("Error: API Key is required.");
-      return;
-    }
-
-    updateStatus("Scraping form...");
-
+    if (!apiKey.value) { setUI('Error: enter API key'); return; }
+    setUI('Working...');
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (tab.url && tab.url.includes("docs.google.com/forms")) {
-      chrome.tabs.sendMessage(tab.id, { action: "ANSWER_FORM" }, (response) => {
-        if (chrome.runtime.lastError) {
-          updateStatus("Error: Can't connect to page. Reload the form.");
-          return;
-        }
-      });
-    } else {
-      updateStatus("Error: Not a Google Form.");
+    if (!tab.url || !tab.url.includes('docs.google.com/forms')) {
+      setUI('Error: open a Google Form first'); return;
     }
+    chrome.tabs.sendMessage(tab.id, { action: "ANSWER_FORM" }, resp => {
+      if (chrome.runtime.lastError) setUI('Error: reload the form page');
+    });
   });
 
-  // Handle "Clear Selections" button click
+  // Clear
   clearBtn.addEventListener('click', async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab.url && tab.url.includes("docs.google.com/forms")) {
+    if (tab.url && tab.url.includes('docs.google.com/forms')) {
       chrome.tabs.sendMessage(tab.id, { action: "CLEAR_SELECTIONS" });
-      updateStatus("Ready to solve");
     }
+    setUI('Ready');
   });
 
-  // Listen for status updates from content script
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === "UPDATE_STATUS") {
-      updateStatus(request.status);
-    }
+  // Live updates from content script
+  chrome.runtime.onMessage.addListener((req) => {
+    if (req.action === 'UPDATE_STATUS') setUI(req.status);
   });
+
+  // Also poll storage for updates (works even after reopening popup)
+  setInterval(() => {
+    chrome.storage.local.get(['geminiStatus'], r => {
+      if (r.geminiStatus && r.geminiStatus !== statusText.textContent) {
+        setUI(r.geminiStatus);
+      }
+    });
+  }, 1000);
 });
