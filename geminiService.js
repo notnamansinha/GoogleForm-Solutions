@@ -111,8 +111,9 @@ Answer each question appropriately.
 - If type is "checkbox", pick ALL correct answers from options.
 - If type is "text", provide a brief, accurate written answer.
 
+CRITICAL: "answer" MUST ALWAYS BE AN ARRAY OF STRINGS, even if there is only one choice. Never return a single string.
 Return ONLY a JSON array with this format:
-[{"id": <match the id exactly>, "answer": "<exact string from options, OR array of strings, OR short text answer>" }]
+[{"id": <match the id exactly>, "answer": ["<exact string 1>", "<exact string 2>"] }]
 
 --- QUESTIONS ---
 ${JSON.stringify(chunkQuestions, null, 2)}

@@ -86,7 +86,20 @@ window.applyAnswersToForm = function (answersArray) {
             applied++;
         } else if (isRadio || isCheckbox) {
             const options = isRadio ? Array.from(radios) : Array.from(checkboxes);
-            const targetAnswers = Array.isArray(answer) ? answer : [answer];
+
+            let targetAnswers = [];
+            if (Array.isArray(answer)) {
+                targetAnswers = answer;
+            } else if (typeof answer === 'string') {
+                const exactMatch = options.find(el => cleanText(el.getAttribute('data-value') || el.innerText).toLowerCase() === cleanText(answer).toLowerCase());
+                if (!exactMatch && isCheckbox && answer.includes(',')) {
+                    targetAnswers = answer.split(',').map(s => s.trim());
+                } else {
+                    targetAnswers = [answer];
+                }
+            } else {
+                targetAnswers = [String(answer)];
+            }
 
             let clickedForThisQuestion = 0;
 
