@@ -50,36 +50,69 @@ window.handleGeminiAnswers = async function (scrapedData) {
             return;
         }
 
-        // Build the prompt
-        let promptText = "You are an automated assistant designed to answer multiple choice questions from a test or survey. I will provide a list of questions along with their unique IDs and possible options.\n\n" +
-            "Task: For each question, determine the correct answer(s) and return a JSON array of objects. Each object MUST contain:\n" +
-            "- \"id\": the exact integer ID provided for the question.\n" +
-            "- \"answer\": an array of strings containing the exact text of the correct option(s).\n\n" +
-            "Important: Your entire response must be ONLY a valid JSON array and nothing else. Ensure the answer text matches the provided options exactly or as closely as possible.\n\n" +
-            "Questions:\n";
+        const BATCH_SIZE = 5;
+        const DELAY_MS = 2000; // 2 seconds delay between batches
 
-        scrapedData.forEach(q => {
-            promptText += `ID: ${q.id}\n`;
-            promptText += `Type: ${q.type}\n`;
-            promptText += `Question: ${q.question}\n`;
-            promptText += `Options: ${JSON.stringify(q.options)}\n\n`;
-        });
+        for (let i = 0; i < scrapedData.length; i += BATCH_SIZE) {
+            const batch = scrapedData.slice(i, i + BATCH_SIZE);
+            const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+            const totalBatches = Math.ceil(scrapedData.length / BATCH_SIZE);
 
-        console.log("Gemini Forms Helper: Sending prompt to Gemini...", promptText);
+            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Fetching answers... (Batch ${batchNum} of ${totalBatches})` });
 
-        const answersJson = await callGemini(promptText, apiKey);
-        console.log("Gemini Forms Helper: Received answers:", answersJson);
+            let promptText = "You are an automated assistant designed to answer multiple choice questions from a test or survey. I will provide a list of questions along with their unique IDs and possible options.\n\n" +
+                "Task: For each question, determine the correct answer(s) and return a JSON array of objects. Each object MUST contain:\n" +
+                "- \"id\": the exact integer ID provided for the question.\n" +
+                "- \"answer\": an array of strings containing the exact text of the correct option(s).\n\n" +
+                "Important: Your entire response must be ONLY a valid JSON array and nothing else. Ensure the answer text matches the provided options exactly or as closely as possible.\n\n" +
+                "Questions:\n";
 
-        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Applying answers to form..." });
+            batch.forEach(q => {
+                promptText += `ID: ${q.id}\n`;
+                promptText += `Type: ${q.type}\n`;
+                promptText += `Question: ${q.question}\n`;
+                promptText += `Options: ${JSON.stringify(q.options)}\n\n`;
+            });
 
-        // Call back to content.js to apply the answers
-        if (typeof window.applyAnswersToForm === 'function') {
-            window.applyAnswersToForm(scrapedData, answersJson);
-            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Done ✅ Answers applied!" });
-        } else {
-            console.warn("applyAnswersToForm function not found.");
-            chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Done ✅ (Answers not applied due to missing function)" });
+            console.log(`Gemini Forms Helper: Sending batch ${batchNum} to Gemini...`, promptText);
+
+            let retries = 3;
+            let success = false;
+            while (retries > 0 && !success) {
+                try {
+                    const answersJson = await callGemini(promptText, apiKey);
+                    console.log(`Gemini Forms Helper: Received answers for batch ${batchNum}:`, answersJson);
+
+                    // Call back to content.js to apply the answers incrementally
+                    if (typeof window.applyAnswersToForm === 'function') {
+                        window.applyAnswersToForm(scrapedData, answersJson);
+                    } else {
+                        console.warn("applyAnswersToForm function not found.");
+                    }
+
+                    success = true;
+
+                    // Delay before next batch if there are more
+                    if (i + BATCH_SIZE < scrapedData.length) {
+                        await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+                    }
+                } catch (err) {
+                    if (err.message.includes("429")) {
+                        console.warn(`Rate limit hit. Waiting 5 seconds before retrying... (${retries} retries left)`);
+                        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Rate limit hit. Retrying in 5s... (${retries} left)` });
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        retries--;
+                    } else {
+                        throw err; // Re-throw other errors
+                    }
+                }
+            }
+            if (!success) {
+                throw new Error("Failed after multiple retries due to rate limiting.");
+            }
         }
+
+        chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: "Done ✅ Answers applied!" });
 
     } catch (err) {
         console.error("Gemini Forms Helper API Error:", err);
