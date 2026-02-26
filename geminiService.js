@@ -117,7 +117,8 @@ Identify ONLY the multiple choice questions (radio buttons / checkboxes).
 Ignore text inputs, dropdowns, generic text.
 Return ONLY a JSON array. 
 Format: [{"question": "<first 5-10 words of the question>", "answers": ["<exact option text>"]}]
-Match option text EXACTLY.
+Match option text EXACTLY. 
+CRITICAL: If the question is a SINGLE Choice (Radio option), return EXACTLY ONE string in the "answers" array. If it's checkboxes, return all correct ones.
 
 --- TEXT START ---
 ${chunkText}

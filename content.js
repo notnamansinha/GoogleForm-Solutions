@@ -35,9 +35,14 @@ window.applyAnswersToForm = function (answersArray) {
             // Found the question — now click options
             const radios = container.querySelectorAll('div[role="radio"]');
             const checkboxes = container.querySelectorAll('div[role="checkbox"]');
-            const options = radios.length > 0 ? Array.from(radios) : Array.from(checkboxes);
+            const isRadio = radios.length > 0;
+            const options = isRadio ? Array.from(radios) : Array.from(checkboxes);
+
+            let clickedForThisQuestion = 0;
 
             correctAnswers.forEach(correctText => {
+                if (isRadio && clickedForThisQuestion > 0) return; // Stop if we already answered a radio question
+
                 const target = correctText.toLowerCase().trim();
                 let bestEl = null;
                 let bestScore = 0;
@@ -59,8 +64,12 @@ window.applyAnswersToForm = function (answersArray) {
                 });
 
                 if (bestEl && bestEl.getAttribute('aria-checked') !== 'true') {
+                    if (isRadio) {
+                        options.forEach(o => o.classList.remove('gemini-highlight-success'));
+                    }
                     bestEl.click();
                     bestEl.classList.add('gemini-highlight-success');
+                    clickedForThisQuestion++;
                     applied++;
                 }
             });
