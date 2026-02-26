@@ -27,15 +27,19 @@ function scrapeFormStructured() {
         const checkboxes = container.querySelectorAll('div[role="checkbox"]');
         const textInputs = container.querySelectorAll('input[type="text"], textarea');
 
+        function getOptionText(el) {
+            return cleanText(el.getAttribute('data-value') || el.getAttribute('aria-label') || el.innerText);
+        }
+
         let type = 'unknown';
         let options = [];
 
         if (radios.length > 0) {
             type = 'radio';
-            options = Array.from(radios).map(r => cleanText(r.getAttribute('data-value') || r.innerText));
+            options = Array.from(radios).map(getOptionText);
         } else if (checkboxes.length > 0) {
             type = 'checkbox';
-            options = Array.from(checkboxes).map(c => cleanText(c.getAttribute('data-value') || c.innerText));
+            options = Array.from(checkboxes).map(getOptionText);
         } else if (textInputs.length > 0) {
             type = 'text';
         }
@@ -91,7 +95,7 @@ window.applyAnswersToForm = function (answersArray) {
             if (Array.isArray(answer)) {
                 targetAnswers = answer;
             } else if (typeof answer === 'string') {
-                const exactMatch = options.find(el => cleanText(el.getAttribute('data-value') || el.innerText).toLowerCase() === cleanText(answer).toLowerCase());
+                const exactMatch = options.find(el => cleanText(el.getAttribute('data-value') || el.getAttribute('aria-label') || el.innerText).toLowerCase() === cleanText(answer).toLowerCase());
                 if (!exactMatch && isCheckbox && answer.includes(',')) {
                     targetAnswers = answer.split(',').map(s => s.trim());
                 } else {
@@ -103,6 +107,10 @@ window.applyAnswersToForm = function (answersArray) {
 
             let clickedForThisQuestion = 0;
 
+            function getOptionTextStr(el) {
+                return cleanText(el.getAttribute('data-value') || el.getAttribute('aria-label') || el.innerText).toLowerCase();
+            }
+
             targetAnswers.forEach(targetRaw => {
                 if (isRadio && clickedForThisQuestion > 0) return; // Only 1 for radio
 
@@ -110,12 +118,12 @@ window.applyAnswersToForm = function (answersArray) {
                 let bestEl = null;
 
                 // Exact match first
-                bestEl = options.find(el => cleanText(el.getAttribute('data-value') || el.innerText).toLowerCase() === target);
+                bestEl = options.find(el => getOptionTextStr(el) === target);
 
                 // Fallback: partial match
                 if (!bestEl) {
                     bestEl = options.find(el => {
-                        const opt = cleanText(el.getAttribute('data-value') || el.innerText).toLowerCase();
+                        const opt = getOptionTextStr(el);
                         return opt.includes(target) || target.includes(opt);
                     });
                 }
