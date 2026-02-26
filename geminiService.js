@@ -12,51 +12,75 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Models to try in order — flash-lite has 3x higher free-tier rate limits
+const MODELS = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash"
+];
+
 async function callGeminiWithRetry(prompt, apiKey, maxRetries = 5) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    for (const model of MODELS) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        console.log(`Gemini Forms Helper: Trying model ${model}...`);
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.1,
-                        responseMimeType: "application/json"
-                    }
-                })
-            });
-
-            if (response.status === 429) {
-                // Exponential backoff: 15s, 30s, 60s, 120s, 240s
-                const waitSec = 15 * Math.pow(2, attempt - 1);
-                console.warn(`Gemini 429 rate limit. Attempt ${attempt}/${maxRetries}. Waiting ${waitSec}s...`);
-                chrome.runtime.sendMessage({
-                    action: "UPDATE_STATUS",
-                    status: `Rate limited. Waiting ${waitSec}s... (attempt ${attempt}/${maxRetries})`
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.1,
+                            responseMimeType: "application/json"
+                        }
+                    })
                 });
-                await sleep(waitSec * 1000);
-                continue;
+
+                if (response.status === 429) {
+                    const waitSec = 20 * Math.pow(2, attempt - 1); // 20s, 40s, 80s, 160s, 320s
+                    console.warn(`[${model}] 429 rate limit. Attempt ${attempt}/${maxRetries}. Waiting ${waitSec}s...`);
+                    chrome.runtime.sendMessage({
+                        action: "UPDATE_STATUS",
+                        status: `Rate limited (${model}). Waiting ${waitSec}s... (${attempt}/${maxRetries})`
+                    });
+                    await sleep(waitSec * 1000);
+                    continue;
+                }
+
+                if (response.status === 404) {
+                    console.warn(`[${model}] Model not available, trying next...`);
+                    break; // Try next model
+                }
+
+                if (!response.ok) {
+                    const errorBody = await response.text();
+                    console.error(`[${model}] API Error ${response.status}:`, errorBody);
+                    throw new Error(`API Error: ${response.status} - ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) throw new Error("No text returned from Gemini.");
+
+                console.log(`Gemini Forms Helper: Success with model ${model}`);
+                return JSON.parse(text);
+
+            } catch (err) {
+                // On last attempt of last model, throw
+                if (model === MODELS[MODELS.length - 1] && attempt === maxRetries) throw err;
+                // If it's not a rate limit error, try next model
+                if (!err.message.includes("429") && !err.message.includes("Rate")) {
+                    if (attempt === maxRetries) break; // try next model
+                    throw err;
+                }
             }
-
-            if (!response.ok) {
-                throw new Error(`API Error: ${response.status} ${response.statusText}`);
-            }
-
-            const data = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!text) throw new Error("No text returned from Gemini.");
-
-            return JSON.parse(text);
-
-        } catch (err) {
-            if (attempt === maxRetries) throw err;
-            if (!err.message.includes("429")) throw err;
         }
+        // If we exhausted retries for this model, try next
+        console.warn(`Exhausted retries for ${model}, trying next model...`);
     }
-    throw new Error("Failed after all retries due to rate limiting. Please wait a minute and try again.");
+    throw new Error("All models failed. Please wait 1-2 minutes and try again.");
 }
 
 // Global function that content.js calls
@@ -68,7 +92,6 @@ window.handleGeminiAnswers = async function (scrapedData) {
             return;
         }
 
-        // Send ALL questions in a single call to minimize API requests
         chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: `Sending ${scrapedData.length} questions to Gemini...` });
 
         let promptText = "You are an expert quiz/test answering assistant. I will provide questions with IDs and options.\n\n" +
