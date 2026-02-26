@@ -22,23 +22,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setUI(msg) {
     statusText.textContent = msg;
+
+    // Reset dot classes
     dot.className = 'dot';
+
     const m = msg.toLowerCase();
-    if (m.includes('error') || m.includes('fail')) dot.classList.add('err');
-    else if (m.includes('✅') || m === 'ready') { /* default gray */ }
-    else if (m !== 'ready') dot.classList.add('active');
+    if (m.includes('error') || m.includes('fail')) {
+      dot.classList.add('error');
+    } else if (m.includes('✅') || m === 'ready') {
+      if (m.includes('✅')) dot.classList.add('done');
+    } else if (m !== 'ready') {
+      dot.classList.add('working');
+    }
   }
 
   // Answer
   answerBtn.addEventListener('click', async () => {
-    if (!apiKey.value) { setUI('Error: enter API key'); return; }
-    setUI('Working...');
+    if (!apiKey.value) { setUI('Error: API key required'); return; }
+
+    setUI('Starting...');
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
     if (!tab.url || !tab.url.includes('docs.google.com/forms')) {
-      setUI('Error: open a Google Form first'); return;
+      setUI('Error: Open a Google Form first');
+      return;
     }
+
     chrome.tabs.sendMessage(tab.id, { action: "ANSWER_FORM" }, resp => {
-      if (chrome.runtime.lastError) setUI('Error: reload the form page');
+      if (chrome.runtime.lastError) setUI('Error: Reload the form page');
     });
   });
 

@@ -1,4 +1,4 @@
-// geminiService.js - API integration (fast model fallback)
+// geminiService.js - API integration (Robust chunking & fallbacks)
 
 async function getGeminiApiKey() {
     return new Promise((resolve) => {
@@ -17,11 +17,11 @@ function setStatus(msg) {
     try { chrome.runtime.sendMessage({ action: "UPDATE_STATUS", status: msg }); } catch (e) { }
 }
 
-// Try models in fast sequence — don't wait long, just skip to next
 const MODELS = [
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash"
+    "gemini-2.0-flash-exp",   // Has higher limits
+    "gemini-2.0-flash-lite",  // Fallback 1
+    "gemini-2.5-flash",       // Fallback 2
+    "gemini-1.5-flash"        // Fallback 3
 ];
 
 async function callGeminiOnce(prompt, apiKey, model) {
@@ -38,12 +38,9 @@ async function callGeminiOnce(prompt, apiKey, model) {
         })
     });
 
-    if (response.status === 429) {
-        return { rateLimited: true };
-    }
-    if (response.status === 404) {
-        return { notFound: true };
-    }
+    if (response.status === 429) return { rateLimited: true };
+    if (response.status === 404) return { notFound: true };
+
     if (!response.ok) {
         const body = await response.text();
         throw new Error(`${response.status}: ${body}`);
@@ -55,89 +52,97 @@ async function callGeminiOnce(prompt, apiKey, model) {
     return { data: JSON.parse(text) };
 }
 
-async function callGeminiFast(prompt, apiKey) {
-    // Round 1: Try each model with just 1s gap
+async function callGeminiRobust(prompt, apiKey, attemptIndex = 1) {
     for (const model of MODELS) {
         setStatus(`Trying ${model}...`);
-        console.log(`[Round 1] Trying ${model}...`);
         try {
             const result = await callGeminiOnce(prompt, apiKey, model);
             if (result.data) return result.data;
             if (result.rateLimited) {
-                console.warn(`[${model}] 429, skipping to next model...`);
-                await sleep(1000);
+                console.warn(`[${model}] 429 rate limit.`);
+                await sleep(1000); // Tiny pause before next model
                 continue;
             }
             if (result.notFound) continue;
         } catch (err) {
             console.error(`[${model}] Error:`, err.message);
-            // If it's an auth error, throw immediately
             if (err.message.includes("API_KEY") || err.message.includes("401") || err.message.includes("403")) {
-                throw new Error("Invalid or expired API key. Please generate a new one at aistudio.google.com");
+                throw new Error("Invalid or expired API key.");
             }
             continue;
         }
     }
 
-    // Round 2: All models were rate limited. Wait 60s then try once more.
-    setStatus("All models busy. Waiting 60s...");
-    console.warn("All models rate-limited. Waiting 60s for quota reset...");
-    await sleep(60000);
-
-    for (const model of MODELS) {
-        setStatus(`Retrying ${model}...`);
-        try {
-            const result = await callGeminiOnce(prompt, apiKey, model);
-            if (result.data) return result.data;
-            if (result.rateLimited) { await sleep(1000); continue; }
-            if (result.notFound) continue;
-        } catch (err) {
-            continue;
-        }
+    // All models 429'd. Exponential backoff and retry.
+    if (attemptIndex <= 4) {
+        const waitSec = 10 * Math.pow(2, attemptIndex - 1); // 10s, 20s, 40s, 80s
+        setStatus(`Rate limited. Waiting ${waitSec}s...`);
+        console.warn(`All models rate-limited. Waiting ${waitSec}s...`);
+        await sleep(waitSec * 1000);
+        return callGeminiRobust(prompt, apiKey, attemptIndex + 1);
     }
 
-    throw new Error("All models exhausted. Wait 2 min and try again.");
+    throw new Error("All models exhausted & rate-limited. Try again in 2 minutes.");
 }
 
-// Global entry — called by content.js
+// Global entry
 window.handleGeminiAnswers = async function (pageText) {
     try {
         const apiKey = await getGeminiApiKey();
         if (!apiKey) {
-            setStatus("Error: No API key. Enter one in the popup.");
+            setStatus("Error: No API key.");
             return;
         }
 
-        setStatus("Sending to Gemini...");
+        setStatus("Chunking form data...");
 
-        const prompt = `You are an expert at answering multiple choice questions. Below is the full text of a Google Form page. 
+        // --- CHUNKING LOGIC FOR LARGE FORMS ---
+        // If the form text is enormous, we split it so Gemini doesn't choke.
+        // Google Forms usually separates questions by newlines heavily.
+        const lines = pageText.split('\n');
+        const CHUNK_SIZE = 150; // process 150 lines at a time
+        let allAnswers = [];
 
-Your task:
-1. Identify ONLY the multiple choice questions (radio buttons = single answer, checkboxes = multiple answers).
-2. Skip any non-MCQ questions (text inputs, date pickers, dropdowns, file uploads, etc.).
-3. For each MCQ, determine the correct answer(s).
+        const totalChunks = Math.ceil(lines.length / CHUNK_SIZE);
 
-Return a JSON array where each element is:
-{"question": "<first few words of the question>", "answers": ["<exact option text>"]}
+        for (let i = 0; i < totalChunks; i++) {
+            setStatus(`Sending chunk ${i + 1} of ${totalChunks}...`);
+            const chunkText = lines.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE).join('\n');
 
-For single-answer questions, return exactly 1 answer. For multiple-answer (checkbox) questions, return all correct answers.
-Match option text EXACTLY as it appears in the form.
-Return ONLY the JSON array, nothing else.
+            // Skip empty chunks
+            if (chunkText.trim().length < 10) continue;
 
---- FORM TEXT START ---
-${pageText}
---- FORM TEXT END ---`;
+            const prompt = `You are a strict test solver. Read this form section.
+Identify ONLY the multiple choice questions (radio buttons / checkboxes).
+Ignore text inputs, dropdowns, generic text.
+Return ONLY a JSON array. 
+Format: [{"question": "<first 5-10 words of the question>", "answers": ["<exact option text>"]}]
+Match option text EXACTLY.
 
-        const answersJson = await callGeminiFast(prompt, apiKey);
-        console.log("Gemini answers:", answersJson);
+--- TEXT START ---
+${chunkText}
+--- TEXT END ---`;
 
+            const chunkAnswers = await callGeminiRobust(prompt, apiKey);
+            if (Array.isArray(chunkAnswers)) {
+                allAnswers = allAnswers.concat(chunkAnswers);
+            }
+
+            // Small pause between chunks to respect rate limits
+            if (i < totalChunks - 1) {
+                setStatus(`Pause before chunk ${i + 2}...`);
+                await sleep(2500);
+            }
+        }
+
+        console.log("Gemini complete answers:", allAnswers);
         setStatus("Selecting answers...");
 
         if (typeof window.applyAnswersToForm === 'function') {
-            window.applyAnswersToForm(answersJson);
+            window.applyAnswersToForm(allAnswers);
             setStatus("Done ✅");
         } else {
-            setStatus("Error: page not ready. Reload and try again.");
+            setStatus("Error: form connection lost.");
         }
 
     } catch (err) {
