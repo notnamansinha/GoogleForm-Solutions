@@ -1,8 +1,8 @@
-# Gemini Forms Helper 🤖📋
+# Gemini Forms Helper 
 
 An AI-powered Chrome extension that automatically reads Google Forms (Multiple Choice Questions and Checkboxes), fetches the correct answers using the Gemini 2.0 Flash API, and auto-selects them for you.
 
-## 🏗️ Architecture
+## Architecture
 
 The extension follows a standard Chrome Manifest V3 architecture with messaging between the popup and the content script injected into the active form page.
 
@@ -36,7 +36,7 @@ graph TD
 2. **Content Script (`content.js`)**: Injected directly into the `https://docs.google.com/forms/*` page. It scrapes the DOM to extract questions and option labels, fuzzy-matches the API response to the DOM nodes, and simulates the click events.
 3. **Gemini Service (`geminiService.js`)**: Takes the scraped questions, batches them into a single, highly-optimized prompt, and returns a verified JSON object of the correct answers.
 
-## 🚀 Installation (Developer Mode)
+## Installation (Developer Mode)
 
 Since this extension is not currently on the Chrome Web Store, you can install it manually:
 
@@ -50,7 +50,7 @@ Since this extension is not currently on the Chrome Web Store, you can install i
 5. Select the cloned `gemini-forms-helper` folder. 
 6. Pin the extension to your toolbar for easy access!
 
-## 💡 How to Use
+## How to Use
 
 1. **Get an API Key**: Go to [Google AI Studio](https://aistudio.google.com/app/apikey) and generate a free API Key.
 2. **Save the Key**: Click the extension icon in your Chrome toolbar, paste your API Key into the input field, and it will be saved securely to your local browser storage.
@@ -64,7 +64,7 @@ Since this extension is not currently on the Chrome Web Store, you can install i
 - **Fuzzy Matching**: Gemini sometimes returns slightly modified text. The application uses a scoring system to fuzzy-match the returned exact answer with the closest DOM element text.
 - **Visuals**: A custom `styles.css` is injected to provide the `.gemini-highlight-success` green glowing border so users know what was automated.
 
-## ⚠️ Notes & Edge Cases
+## Notes & Edge Cases
 - Currently supports standard single-choice (radio) and multiple-choice (checkbox) options.
 - Dropdowns and short/long answer text inputs are ignored in the current version.
 - Extremely long forms may hit the Gemini API rate limits/token limits. The prompt is highly optimized to minimize token usage by requesting strictly formatted JSON output.
